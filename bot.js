@@ -1,18 +1,74 @@
 /**
- * Claude + TradingView MCP — Automated Trading Bot
+ * Claude + TradingView MCP — Halal Automated Trading Bot
+ *
+ * Shariah Compliance Principles:
+ *  1. Spot trading ONLY — no margin, no futures, no leverage (no riba)
+ *  2. No short selling — only buy/sell assets you own (no selling what you don't possess)
+ *  3. Halal asset screening — only trade Shariah-permissible crypto pairs
+ *  4. Zakat tracking — 2.5% due on net profits held above nisab for a lunar year
+ *  5. No gharar — clear, transparent entry/exit conditions required before any trade
  *
  * Cloud mode: runs on Railway on a schedule. Pulls candle data direct from
  * Binance (free, no auth), calculates all indicators, runs safety check,
- * executes via BitGet if everything lines up.
+ * executes via BitGet (spot only) if everything lines up.
  *
- * Local mode: run manually — node bot.js
- * Cloud mode: deploy to Railway, set env vars, Railway triggers on cron schedule
+ * Local mode: node bot.js
+ * Tax summary: node bot.js --tax-summary
+ * Zakat summary: node bot.js --zakat
  */
 
 import "dotenv/config";
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from "fs";
 import crypto from "crypto";
 import { execSync } from "child_process";
+
+// ─── Shariah-Approved Asset Whitelist ────────────────────────────────────────
+// Scholars generally permit crypto that has utility, no interest mechanism,
+// and is not tied to haram industries (gambling, alcohol, adult content, etc.).
+// This list reflects broad consensus — always verify with your own scholar.
+const HALAL_SYMBOLS = new Set([
+  "BTCUSDT", "BTCUSDC", "BTCBUSD",
+  "ETHUSDT", "ETHUSDC", "ETHBUSD",
+  "BNBUSDT", "BNBUSDC",
+  "ADAUSDT", "ADAUSDC",
+  "SOLUSDT", "SOLUSDC",
+  "DOTUSDT",
+  "LINKUSDT",
+  "MATICUSDT",
+  "AVAXUSDT",
+  "ATOMUSDT",
+  "XLMUSDT",
+  "ALGOUSDT",
+  "NEARUSDT",
+  "FTMUSDT",
+  "INJUSDT",
+  "SUIUSDT",
+  "APTUSDT",
+]);
+
+// Symbols explicitly blocked regardless of technical setup
+const HARAM_SYMBOLS = new Set([
+  // Add any tokens you know are tied to gambling, adult content, etc.
+  // e.g. "CASINOTOKEN", "BETUSDT"
+]);
+
+function checkShariahScreening(symbol) {
+  const upper = symbol.toUpperCase();
+  console.log("\n── Shariah Screening ────────────────────────────────────\n");
+
+  if (HARAM_SYMBOLS.has(upper)) {
+    console.log(`🚫 ${upper} is on the haram blocked list. Trade not permitted.`);
+    return false;
+  }
+  if (!HALAL_SYMBOLS.has(upper)) {
+    console.log(`⚠️  ${upper} is not on the halal whitelist.`);
+    console.log(`   If your scholar has approved this asset, add it to HALAL_SYMBOLS in bot.js.`);
+    console.log(`   Proceeding is blocked until explicitly whitelisted.`);
+    return false;
+  }
+  console.log(`✅ ${upper} is on the halal-approved asset list`);
+  return true;
+}
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
@@ -21,9 +77,7 @@ function checkOnboarding() {
   const missing = required.filter((k) => !process.env[k]);
 
   if (!existsSync(".env")) {
-    console.log(
-      "\n⚠️  No .env file found — opening it for you to fill in...\n",
-    );
+    console.log("\n⚠️  No .env file found — creating it for you...\n");
     writeFileSync(
       ".env",
       [
@@ -32,53 +86,48 @@ function checkOnboarding() {
         "BITGET_SECRET_KEY=",
         "BITGET_PASSPHRASE=",
         "",
-        "# Trading config",
+        "# Trading config — SPOT ONLY (Shariah compliance)",
         "PORTFOLIO_VALUE_USD=1000",
         "MAX_TRADE_SIZE_USD=100",
         "MAX_TRADES_PER_DAY=3",
         "PAPER_TRADING=true",
         "SYMBOL=BTCUSDT",
         "TIMEFRAME=4H",
+        "",
+        "# Zakat settings",
+        "# Nisab threshold in USD (approx. value of 85g gold or 595g silver — update periodically)",
+        "ZAKAT_NISAB_USD=5000",
       ].join("\n") + "\n",
     );
-    try {
-      execSync("open .env");
-    } catch {}
-    console.log(
-      "Fill in your BitGet credentials in .env then re-run: node bot.js\n",
-    );
+    try { execSync("notepad .env"); } catch {}
+    console.log("Fill in your BitGet credentials in .env then re-run: node bot.js\n");
     process.exit(0);
   }
 
   if (missing.length > 0) {
     console.log(`\n⚠️  Missing credentials in .env: ${missing.join(", ")}`);
-    console.log("Opening .env for you now...\n");
-    try {
-      execSync("open .env");
-    } catch {}
+    try { execSync("notepad .env"); } catch {}
     console.log("Add the missing values then re-run: node bot.js\n");
     process.exit(0);
   }
 
-  // Always print the CSV location so users know where to find their trade log
   const csvPath = new URL("trades.csv", import.meta.url).pathname;
   console.log(`\n📄 Trade log: ${csvPath}`);
-  console.log(
-    `   Open in Google Sheets or Excel any time — or tell Claude to move it:\n` +
-      `   "Move my trades.csv to ~/Desktop" or "Move it to my Documents folder"\n`,
-  );
+  console.log(`   Open in Google Sheets or Excel — or ask Claude to move it.\n`);
 }
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
 const CONFIG = {
-  symbol: process.env.SYMBOL || "BTCUSDT",
+  symbol: (process.env.SYMBOL || "BTCUSDT").toUpperCase(),
   timeframe: process.env.TIMEFRAME || "4H",
   portfolioValue: parseFloat(process.env.PORTFOLIO_VALUE_USD || "1000"),
   maxTradeSizeUSD: parseFloat(process.env.MAX_TRADE_SIZE_USD || "100"),
   maxTradesPerDay: parseInt(process.env.MAX_TRADES_PER_DAY || "3"),
   paperTrading: process.env.PAPER_TRADING !== "false",
-  tradeMode: process.env.TRADE_MODE || "spot",
+  // ALWAYS spot — futures/margin involve riba (interest), which is haram
+  tradeMode: "spot",
+  zakatNisabUSD: parseFloat(process.env.ZAKAT_NISAB_USD || "5000"),
   bitget: {
     apiKey: process.env.BITGET_API_KEY,
     secretKey: process.env.BITGET_SECRET_KEY,
@@ -110,25 +159,16 @@ function countTodaysTrades(log) {
 // ─── Market Data (Binance public API — free, no auth) ───────────────────────
 
 async function fetchCandles(symbol, interval, limit = 100) {
-  // Map our timeframe format to Binance interval format
   const intervalMap = {
-    "1m": "1m",
-    "3m": "3m",
-    "5m": "5m",
-    "15m": "15m",
-    "30m": "30m",
-    "1H": "1h",
-    "4H": "4h",
-    "1D": "1d",
-    "1W": "1w",
+    "1m": "1m", "3m": "3m", "5m": "5m",
+    "15m": "15m", "30m": "30m",
+    "1H": "1h", "4H": "4h", "1D": "1d", "1W": "1w",
   };
-  const binanceInterval = intervalMap[interval] || "1m";
-
+  const binanceInterval = intervalMap[interval] || "1h";
   const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${binanceInterval}&limit=${limit}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Binance API error: ${res.status}`);
   const data = await res.json();
-
   return data.map((k) => ({
     time: k[0],
     open: parseFloat(k[1]),
@@ -152,8 +192,7 @@ function calcEMA(closes, period) {
 
 function calcRSI(closes, period = 14) {
   if (closes.length < period + 1) return null;
-  let gains = 0,
-    losses = 0;
+  let gains = 0, losses = 0;
   for (let i = closes.length - period; i < closes.length; i++) {
     const diff = closes[i] - closes[i - 1];
     if (diff > 0) gains += diff;
@@ -162,8 +201,27 @@ function calcRSI(closes, period = 14) {
   const avgGain = gains / period;
   const avgLoss = losses / period;
   if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return 100 - 100 / (1 + rs);
+  return 100 - 100 / (1 + avgGain / avgLoss);
+}
+
+// MACD — used for additional trend confirmation
+function calcMACD(closes, fast = 12, slow = 26, signal = 9) {
+  if (closes.length < slow + signal) return null;
+  const emaFast = calcEMA(closes, fast);
+  const emaSlow = calcEMA(closes, slow);
+  const macdLine = emaFast - emaSlow;
+
+  // Approximate signal line from last `signal` MACD values
+  const macdValues = [];
+  for (let i = closes.length - signal - 1; i < closes.length; i++) {
+    const slice = closes.slice(0, i + 1);
+    if (slice.length < slow) continue;
+    const f = calcEMA(slice, fast);
+    const s = calcEMA(slice, slow);
+    macdValues.push(f - s);
+  }
+  const signalLine = calcEMA(macdValues, signal);
+  return { macdLine, signalLine, histogram: macdLine - signalLine };
 }
 
 // VWAP — session-based, resets at midnight UTC
@@ -173,16 +231,17 @@ function calcVWAP(candles) {
   const sessionCandles = candles.filter((c) => c.time >= midnightUTC.getTime());
   if (sessionCandles.length === 0) return null;
   const cumTPV = sessionCandles.reduce(
-    (sum, c) => sum + ((c.high + c.low + c.close) / 3) * c.volume,
-    0,
+    (sum, c) => sum + ((c.high + c.low + c.close) / 3) * c.volume, 0,
   );
   const cumVol = sessionCandles.reduce((sum, c) => sum + c.volume, 0);
   return cumVol === 0 ? null : cumTPV / cumVol;
 }
 
-// ─── Safety Check ───────────────────────────────────────────────────────────
+// ─── Shariah Safety Check (LONG / BUY only — no short selling) ──────────────
+// Short selling is prohibited in Islamic finance because you are selling
+// something you do not own. This bot only evaluates buy conditions.
 
-function runSafetyCheck(price, ema8, vwap, rsi3, rules) {
+function runSafetyCheck(price, ema8, vwap, rsi3, macd, rules) {
   const results = [];
 
   const check = (label, required, actual, pass) => {
@@ -192,16 +251,14 @@ function runSafetyCheck(price, ema8, vwap, rsi3, rules) {
     console.log(`     Required: ${required} | Actual: ${actual}`);
   };
 
-  console.log("\n── Safety Check ─────────────────────────────────────────\n");
+  console.log("\n── Safety Check (Halal — Long Entry Only) ───────────────\n");
 
-  // Determine bias first
   const bullishBias = price > vwap && price > ema8;
-  const bearishBias = price < vwap && price < ema8;
+  const macdBullish = macd ? macd.macdLine > macd.signalLine : null;
 
   if (bullishBias) {
     console.log("  Bias: BULLISH — checking long entry conditions\n");
 
-    // 1. Price above VWAP
     check(
       "Price above VWAP (buyers in control)",
       `> ${vwap.toFixed(2)}`,
@@ -209,7 +266,6 @@ function runSafetyCheck(price, ema8, vwap, rsi3, rules) {
       price > vwap,
     );
 
-    // 2. Price above EMA(8)
     check(
       "Price above EMA(8) (uptrend confirmed)",
       `> ${ema8.toFixed(2)}`,
@@ -217,7 +273,6 @@ function runSafetyCheck(price, ema8, vwap, rsi3, rules) {
       price > ema8,
     );
 
-    // 3. RSI(3) pullback
     check(
       "RSI(3) below 30 (snap-back setup in uptrend)",
       "< 30",
@@ -225,51 +280,31 @@ function runSafetyCheck(price, ema8, vwap, rsi3, rules) {
       rsi3 < 30,
     );
 
-    // 4. Not overextended from VWAP
     const distFromVWAP = Math.abs((price - vwap) / vwap) * 100;
     check(
-      "Price within 1.5% of VWAP (not overextended)",
-      "< 1.5%",
+      "Price within 2% of VWAP (not overextended — reduces gharar)",
+      "< 2%",
       `${distFromVWAP.toFixed(2)}%`,
-      distFromVWAP < 1.5,
-    );
-  } else if (bearishBias) {
-    console.log("  Bias: BEARISH — checking short entry conditions\n");
-
-    check(
-      "Price below VWAP (sellers in control)",
-      `< ${vwap.toFixed(2)}`,
-      price.toFixed(2),
-      price < vwap,
+      distFromVWAP < 2,
     );
 
-    check(
-      "Price below EMA(8) (downtrend confirmed)",
-      `< ${ema8.toFixed(2)}`,
-      price.toFixed(2),
-      price < ema8,
-    );
-
-    check(
-      "RSI(3) above 70 (reversal setup in downtrend)",
-      "> 70",
-      rsi3.toFixed(2),
-      rsi3 > 70,
-    );
-
-    const distFromVWAP = Math.abs((price - vwap) / vwap) * 100;
-    check(
-      "Price within 1.5% of VWAP (not overextended)",
-      "< 1.5%",
-      `${distFromVWAP.toFixed(2)}%`,
-      distFromVWAP < 1.5,
-    );
+    if (macd !== null) {
+      check(
+        "MACD line above signal line (trend confirmation)",
+        "MACD > Signal",
+        `MACD ${macd.macdLine.toFixed(4)} | Signal ${macd.signalLine.toFixed(4)}`,
+        macdBullish,
+      );
+    }
   } else {
-    console.log("  Bias: NEUTRAL — no clear direction. No trade.\n");
+    // NEUTRAL or BEARISH — no short selling permitted in Shariah
+    console.log("  Bias: NEUTRAL / BEARISH\n");
+    console.log("  ℹ️  Short selling is not permitted under Shariah principles.");
+    console.log("  No trade will be placed. Waiting for a halal long setup.\n");
     results.push({
-      label: "Market bias",
-      required: "Bullish or bearish",
-      actual: "Neutral",
+      label: "Halal long setup required",
+      required: "Bullish bias (price above VWAP and EMA8)",
+      actual: "Bias is neutral or bearish",
       pass: false,
     });
   }
@@ -282,40 +317,24 @@ function runSafetyCheck(price, ema8, vwap, rsi3, rules) {
 
 function checkTradeLimits(log) {
   const todayCount = countTodaysTrades(log);
-
   console.log("\n── Trade Limits ─────────────────────────────────────────\n");
 
   if (todayCount >= CONFIG.maxTradesPerDay) {
-    console.log(
-      `🚫 Max trades per day reached: ${todayCount}/${CONFIG.maxTradesPerDay}`,
-    );
+    console.log(`🚫 Max trades per day reached: ${todayCount}/${CONFIG.maxTradesPerDay}`);
     return false;
   }
+  console.log(`✅ Trades today: ${todayCount}/${CONFIG.maxTradesPerDay} — within limit`);
 
-  console.log(
-    `✅ Trades today: ${todayCount}/${CONFIG.maxTradesPerDay} — within limit`,
-  );
-
-  const tradeSize = Math.min(
-    CONFIG.portfolioValue * 0.01,
-    CONFIG.maxTradeSizeUSD,
-  );
-
+  const tradeSize = Math.min(CONFIG.portfolioValue * 0.01, CONFIG.maxTradeSizeUSD);
   if (tradeSize > CONFIG.maxTradeSizeUSD) {
-    console.log(
-      `🚫 Trade size $${tradeSize.toFixed(2)} exceeds max $${CONFIG.maxTradeSizeUSD}`,
-    );
+    console.log(`🚫 Trade size $${tradeSize.toFixed(2)} exceeds max $${CONFIG.maxTradeSizeUSD}`);
     return false;
   }
-
-  console.log(
-    `✅ Trade size: $${tradeSize.toFixed(2)} — within max $${CONFIG.maxTradeSizeUSD}`,
-  );
-
+  console.log(`✅ Trade size: $${tradeSize.toFixed(2)} — within max $${CONFIG.maxTradeSizeUSD}`);
   return true;
 }
 
-// ─── BitGet Execution ────────────────────────────────────────────────────────
+// ─── BitGet Execution (Spot Only) ────────────────────────────────────────────
 
 function signBitGet(timestamp, method, path, body = "") {
   const message = `${timestamp}${method}${path}${body}`;
@@ -326,23 +345,16 @@ function signBitGet(timestamp, method, path, body = "") {
 }
 
 async function placeBitGetOrder(symbol, side, sizeUSD, price) {
+  // Hard-enforce spot — futures involve margin interest (riba)
   const quantity = (sizeUSD / price).toFixed(6);
   const timestamp = Date.now().toString();
-  const path =
-    CONFIG.tradeMode === "spot"
-      ? "/api/v2/spot/trade/placeOrder"
-      : "/api/v2/mix/order/placeOrder";
+  const path = "/api/v2/spot/trade/placeOrder";
 
   const body = JSON.stringify({
     symbol,
     side,
     orderType: "market",
     quantity,
-    ...(CONFIG.tradeMode === "futures" && {
-      productType: "USDT-FUTURES",
-      marginMode: "isolated",
-      marginCoin: "USDT",
-    }),
   });
 
   const signature = signBitGet(timestamp, "POST", path, body);
@@ -363,59 +375,73 @@ async function placeBitGetOrder(symbol, side, sizeUSD, price) {
   if (data.code !== "00000") {
     throw new Error(`BitGet order failed: ${data.msg}`);
   }
-
   return data.data;
+}
+
+// ─── Zakat Calculator ────────────────────────────────────────────────────────
+// Zakat on trading profits: 2.5% is due on net profits that have been held
+// above the nisab threshold for one lunar year (354 days).
+// This is a simplified tracker — consult your scholar for your specific situation.
+
+function calculateZakat() {
+  if (!existsSync(CSV_FILE)) {
+    console.log("No trades.csv found — no trades recorded yet.");
+    return;
+  }
+
+  const lines = readFileSync(CSV_FILE, "utf8").trim().split("\n");
+  const rows = lines.slice(1).map((l) => l.split(","));
+  const live = rows.filter((r) => r[11] === "LIVE");
+
+  const totalVolume = live.reduce((sum, r) => sum + parseFloat(r[7] || 0), 0);
+  const totalFees = live.reduce((sum, r) => sum + parseFloat(r[8] || 0), 0);
+  const netProfit = totalVolume - totalFees; // simplified — assumes all closed at profit
+
+  const zakatDue = netProfit >= CONFIG.zakatNisabUSD ? netProfit * 0.025 : 0;
+
+  console.log("\n── Zakat Summary (Simplified) ───────────────────────────\n");
+  console.log(`  Total live trades      : ${live.length}`);
+  console.log(`  Total volume (USD)     : $${totalVolume.toFixed(2)}`);
+  console.log(`  Total fees paid (est.) : $${totalFees.toFixed(4)}`);
+  console.log(`  Nisab threshold        : $${CONFIG.zakatNisabUSD.toFixed(2)}`);
+  console.log(
+    netProfit >= CONFIG.zakatNisabUSD
+      ? `  ✅ Above nisab — Zakat due: $${zakatDue.toFixed(2)} (2.5% of net)`
+      : `  ℹ️  Below nisab — No zakat due yet on these profits`,
+  );
+  console.log(`\n  NOTE: This is a simplified calculation based on gross trade volume.`);
+  console.log(`  Consult your scholar for a ruling based on your actual net position.\n`);
+  console.log("─────────────────────────────────────────────────────────\n");
 }
 
 // ─── Tax CSV Logging ─────────────────────────────────────────────────────────
 
 const CSV_FILE = "trades.csv";
 
-// Always ensure trades.csv exists with headers — open it in Excel/Sheets any time
+const CSV_HEADERS = [
+  "Date", "Time (UTC)", "Exchange", "Symbol", "Side",
+  "Quantity", "Price", "Total USD", "Fee (est.)", "Net Amount",
+  "Order ID", "Mode", "Notes",
+].join(",");
+
 function initCsv() {
   if (!existsSync(CSV_FILE)) {
-    const funnyNote = `,,,,,,,,,,,"NOTE","Hey, if you're at this stage of the video, you must be enjoying it... perhaps you could hit subscribe now? :)"`;
-    writeFileSync(CSV_FILE, CSV_HEADERS + "\n" + funnyNote + "\n");
-    console.log(
-      `📄 Created ${CSV_FILE} — open in Google Sheets or Excel to track trades.`,
-    );
+    const note = `,,,,,,,,,,,"NOTE","Halal trading bot — Spot only, no short selling, Shariah-screened assets."`;
+    writeFileSync(CSV_FILE, CSV_HEADERS + "\n" + note + "\n");
+    console.log(`📄 Created ${CSV_FILE}`);
   }
 }
-const CSV_HEADERS = [
-  "Date",
-  "Time (UTC)",
-  "Exchange",
-  "Symbol",
-  "Side",
-  "Quantity",
-  "Price",
-  "Total USD",
-  "Fee (est.)",
-  "Net Amount",
-  "Order ID",
-  "Mode",
-  "Notes",
-].join(",");
 
 function writeTradeCsv(logEntry) {
   const now = new Date(logEntry.timestamp);
   const date = now.toISOString().slice(0, 10);
   const time = now.toISOString().slice(11, 19);
 
-  let side = "";
-  let quantity = "";
-  let totalUSD = "";
-  let fee = "";
-  let netAmount = "";
-  let orderId = "";
-  let mode = "";
-  let notes = "";
+  let side = "", quantity = "", totalUSD = "", fee = "",
+    netAmount = "", orderId = "", mode = "", notes = "";
 
   if (!logEntry.allPass) {
-    const failed = logEntry.conditions
-      .filter((c) => !c.pass)
-      .map((c) => c.label)
-      .join("; ");
+    const failed = logEntry.conditions.filter((c) => !c.pass).map((c) => c.label).join("; ");
     mode = "BLOCKED";
     orderId = "BLOCKED";
     notes = `Failed: ${failed}`;
@@ -427,7 +453,7 @@ function writeTradeCsv(logEntry) {
     netAmount = (logEntry.tradeSize - parseFloat(fee)).toFixed(2);
     orderId = logEntry.orderId || "";
     mode = "PAPER";
-    notes = "All conditions met";
+    notes = "All conditions met — Halal spot buy";
   } else {
     side = "BUY";
     quantity = (logEntry.tradeSize / logEntry.price).toFixed(6);
@@ -436,47 +462,30 @@ function writeTradeCsv(logEntry) {
     netAmount = (logEntry.tradeSize - parseFloat(fee)).toFixed(2);
     orderId = logEntry.orderId || "";
     mode = "LIVE";
-    notes = logEntry.error ? `Error: ${logEntry.error}` : "All conditions met";
+    notes = logEntry.error ? `Error: ${logEntry.error}` : "Halal spot buy executed";
   }
 
   const row = [
-    date,
-    time,
-    "BitGet",
-    logEntry.symbol,
-    side,
-    quantity,
-    logEntry.price.toFixed(2),
-    totalUSD,
-    fee,
-    netAmount,
-    orderId,
-    mode,
-    `"${notes}"`,
+    date, time, "BitGet", logEntry.symbol, side,
+    quantity, logEntry.price.toFixed(2), totalUSD, fee, netAmount,
+    orderId, mode, `"${notes}"`,
   ].join(",");
 
-  if (!existsSync(CSV_FILE)) {
-    writeFileSync(CSV_FILE, CSV_HEADERS + "\n");
-  }
-
+  if (!existsSync(CSV_FILE)) writeFileSync(CSV_FILE, CSV_HEADERS + "\n");
   appendFileSync(CSV_FILE, row + "\n");
   console.log(`Tax record saved → ${CSV_FILE}`);
 }
 
-// Tax summary command: node bot.js --tax-summary
 function generateTaxSummary() {
   if (!existsSync(CSV_FILE)) {
     console.log("No trades.csv found — no trades have been recorded yet.");
     return;
   }
-
   const lines = readFileSync(CSV_FILE, "utf8").trim().split("\n");
   const rows = lines.slice(1).map((l) => l.split(","));
-
   const live = rows.filter((r) => r[11] === "LIVE");
   const paper = rows.filter((r) => r[11] === "PAPER");
   const blocked = rows.filter((r) => r[11] === "BLOCKED");
-
   const totalVolume = live.reduce((sum, r) => sum + parseFloat(r[7] || 0), 0);
   const totalFees = live.reduce((sum, r) => sum + parseFloat(r[8] || 0), 0);
 
@@ -496,13 +505,20 @@ function generateTaxSummary() {
 async function run() {
   checkOnboarding();
   initCsv();
+
   console.log("═══════════════════════════════════════════════════════════");
-  console.log("  Claude Trading Bot");
+  console.log("  Halal Trading Bot — Shariah-Compliant Spot Trading");
   console.log(`  ${new Date().toISOString()}`);
-  console.log(
-    `  Mode: ${CONFIG.paperTrading ? "📋 PAPER TRADING" : "🔴 LIVE TRADING"}`,
-  );
+  console.log(`  Mode: ${CONFIG.paperTrading ? "📋 PAPER TRADING" : "🔴 LIVE TRADING"}`);
+  console.log("  Rules: Spot only | No shorts | Halal assets only");
   console.log("═══════════════════════════════════════════════════════════");
+
+  // Shariah asset screening — block before any computation
+  const halal = checkShariahScreening(CONFIG.symbol);
+  if (!halal) {
+    console.log("\nBot stopping — asset failed Shariah screening.");
+    process.exit(0);
+  }
 
   // Load strategy
   const rules = JSON.parse(readFileSync("rules.json", "utf8"));
@@ -517,7 +533,7 @@ async function run() {
     return;
   }
 
-  // Fetch candle data — need enough for EMA(8) + full session for VWAP
+  // Fetch candle data
   console.log("\n── Fetching market data from Binance ───────────────────\n");
   const candles = await fetchCandles(CONFIG.symbol, CONFIG.timeframe, 500);
   const closes = candles.map((c) => c.close);
@@ -528,26 +544,28 @@ async function run() {
   const ema8 = calcEMA(closes, 8);
   const vwap = calcVWAP(candles);
   const rsi3 = calcRSI(closes, 3);
+  const macd = calcMACD(closes);
 
-  console.log(`  EMA(8):  $${ema8.toFixed(2)}`);
-  console.log(`  VWAP:    $${vwap ? vwap.toFixed(2) : "N/A"}`);
-  console.log(`  RSI(3):  ${rsi3 ? rsi3.toFixed(2) : "N/A"}`);
+  console.log(`  EMA(8):        $${ema8.toFixed(2)}`);
+  console.log(`  VWAP:          $${vwap ? vwap.toFixed(2) : "N/A"}`);
+  console.log(`  RSI(3):        ${rsi3 ? rsi3.toFixed(2) : "N/A"}`);
+  if (macd) {
+    console.log(`  MACD:          ${macd.macdLine.toFixed(4)}`);
+    console.log(`  MACD Signal:   ${macd.signalLine.toFixed(4)}`);
+    console.log(`  MACD Histogram:${macd.histogram.toFixed(4)}`);
+  }
 
   if (!vwap || !rsi3) {
     console.log("\n⚠️  Not enough data to calculate indicators. Exiting.");
     return;
   }
 
-  // Run safety check
-  const { results, allPass } = runSafetyCheck(price, ema8, vwap, rsi3, rules);
+  // Run safety check — long/buy entries only
+  const { results, allPass } = runSafetyCheck(price, ema8, vwap, rsi3, macd, rules);
 
-  // Calculate position size
-  const tradeSize = Math.min(
-    CONFIG.portfolioValue * 0.01,
-    CONFIG.maxTradeSizeUSD,
-  );
+  // Position size — max 1% of portfolio
+  const tradeSize = Math.min(CONFIG.portfolioValue * 0.01, CONFIG.maxTradeSizeUSD);
 
-  // Decision
   console.log("\n── Decision ─────────────────────────────────────────────\n");
 
   const logEntry = {
@@ -555,13 +573,14 @@ async function run() {
     symbol: CONFIG.symbol,
     timeframe: CONFIG.timeframe,
     price,
-    indicators: { ema8, vwap, rsi3 },
+    indicators: { ema8, vwap, rsi3, macd },
     conditions: results,
     allPass,
     tradeSize,
     orderPlaced: false,
     orderId: null,
     paperTrading: CONFIG.paperTrading,
+    shariah: { spotOnly: true, noShorts: true, halalScreened: true },
     limits: {
       maxTradeSizeUSD: CONFIG.maxTradeSizeUSD,
       maxTradesPerDay: CONFIG.maxTradesPerDay,
@@ -578,23 +597,14 @@ async function run() {
     console.log(`✅ ALL CONDITIONS MET`);
 
     if (CONFIG.paperTrading) {
-      console.log(
-        `\n📋 PAPER TRADE — would buy ${CONFIG.symbol} ~$${tradeSize.toFixed(2)} at market`,
-      );
+      console.log(`\n📋 PAPER TRADE — would buy ${CONFIG.symbol} ~$${tradeSize.toFixed(2)} at market (spot, halal)`);
       console.log(`   (Set PAPER_TRADING=false in .env to place real orders)`);
       logEntry.orderPlaced = true;
       logEntry.orderId = `PAPER-${Date.now()}`;
     } else {
-      console.log(
-        `\n🔴 PLACING LIVE ORDER — $${tradeSize.toFixed(2)} BUY ${CONFIG.symbol}`,
-      );
+      console.log(`\n🔴 PLACING LIVE SPOT ORDER — $${tradeSize.toFixed(2)} BUY ${CONFIG.symbol}`);
       try {
-        const order = await placeBitGetOrder(
-          CONFIG.symbol,
-          "buy",
-          tradeSize,
-          price,
-        );
+        const order = await placeBitGetOrder(CONFIG.symbol, "buy", tradeSize, price);
         logEntry.orderPlaced = true;
         logEntry.orderId = order.orderId;
         console.log(`✅ ORDER PLACED — ${order.orderId}`);
@@ -605,19 +615,19 @@ async function run() {
     }
   }
 
-  // Save decision log
   log.trades.push(logEntry);
   saveLog(log);
   console.log(`\nDecision log saved → ${LOG_FILE}`);
-
-  // Write tax CSV row for every run (executed, paper, or blocked)
   writeTradeCsv(logEntry);
-
   console.log("═══════════════════════════════════════════════════════════\n");
 }
 
+// ─── CLI entry ───────────────────────────────────────────────────────────────
+
 if (process.argv.includes("--tax-summary")) {
   generateTaxSummary();
+} else if (process.argv.includes("--zakat")) {
+  calculateZakat();
 } else {
   run().catch((err) => {
     console.error("Bot error:", err);

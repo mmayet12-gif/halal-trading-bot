@@ -1,50 +1,70 @@
 {
-  "watchlist": ["BTCUSDT"],
-  "default_timeframe": "1m",
+  "watchlist": ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT"],
+  "default_timeframe": "4H",
 
   "strategy": {
-    "name": "VWAP + RSI(3) + EMA(8) Scalping Strategy",
-    "sources": ["Lewis Jackson"],
-    "description": "Three indicators, each doing a different job. EMA(8) for trend direction, VWAP for session bias, RSI(3) for entry timing. All three must align before a trade fires."
+    "name": "Halal VWAP + RSI(3) + EMA(8) + MACD Spot Strategy",
+    "shariah_compliance": {
+      "riba_free": true,
+      "no_short_selling": true,
+      "spot_only": true,
+      "halal_assets_only": true,
+      "notes": "This strategy only takes long (buy) positions on spot markets. Short selling is prohibited because it involves selling assets not in one's possession. Leverage and margin are prohibited due to riba (interest). Only Shariah-screened assets are traded."
+    },
+    "sources": ["Technical Analysis — Shariah-adapted"],
+    "description": "Three indicators, each doing a different job. EMA(8) for trend direction, VWAP for session bias, RSI(3) for entry timing, MACD for trend confirmation. All must align before a halal spot buy is executed. No short positions are ever taken."
   },
 
   "indicators": {
-    "ema_8": "Trend direction. Price above EMA(8) = bullish momentum. Below = bearish.",
-    "vwap": "Session bias. Price above VWAP = buyers in control. Below = sellers. Resets at midnight UTC.",
-    "rsi_3": "Entry timing. RSI on 3 candles only — extremely sensitive. Below 30 in an uptrend = snap-back setup. Above 70 in a downtrend = reversal likely."
+    "ema_8": "Trend direction. Price above EMA(8) = bullish momentum. Below = bearish (no trade — we wait).",
+    "vwap": "Session bias. Price above VWAP = buyers in control. Below = sellers (no trade — we wait). Resets at midnight UTC.",
+    "rsi_3": "Entry timing. RSI on 3 candles only — extremely sensitive. Below 30 in an uptrend = snap-back setup for a spot buy.",
+    "macd": "Trend confirmation. MACD line above signal line confirms bullish momentum before buying."
   },
 
   "bias_criteria": {
-    "bullish": ["Price is above VWAP", "Price is above EMA(8)"],
-    "bearish": ["Price is below VWAP", "Price is below EMA(8)"]
+    "bullish": [
+      "Price is above VWAP",
+      "Price is above EMA(8)"
+    ],
+    "neutral_or_bearish": "No trade — we do not short sell. We wait for the next halal bullish setup."
   },
 
   "entry_rules": {
-    "long": [
+    "long_only": [
       "Price is above VWAP — buyers in control for the session",
       "Price is above EMA(8) — uptrend confirmed",
-      "RSI(3) has dropped below 30 — short-term pullback in an uptrend, snap-back likely"
+      "RSI(3) has dropped below 30 — short-term pullback in an uptrend, snap-back likely",
+      "Price is within 2% of VWAP — not overextended (reduces gharar/excessive uncertainty)",
+      "MACD line is above the signal line — momentum confirmed bullish"
     ],
-    "short": [
-      "Price is below VWAP — sellers in control",
-      "Price is below EMA(8) — downtrend confirmed",
-      "RSI(3) has spiked above 70 — overbought in a downtrend, reversal likely"
-    ]
+    "short": "DISABLED — short selling is prohibited under Shariah law (selling what you do not own)"
   },
 
   "exit_rules": [
-    "Exit when RSI(3) crosses back above 50 (for longs) or below 50 (for shorts)",
-    "Hard stop: 0.3% below entry for longs, 0.3% above entry for shorts",
-    "Take profit at next VWAP touch or EMA(8) cross"
+    "Sell (exit position) when RSI(3) crosses back above 60",
+    "Hard stop-loss: 1% below entry price",
+    "Take profit at next VWAP touch or EMA(8) cross (from above)",
+    "Never hold a leveraged position — spot only, sell what you own"
   ],
 
   "risk_rules": [
     "Risk maximum 1% of portfolio per trade",
     "Maximum trade size capped by MAX_TRADE_SIZE_USD in .env",
     "Maximum trades per day capped by MAX_TRADES_PER_DAY in .env",
-    "Do not trade if price is more than 1.5% away from VWAP — overextended",
-    "Paper trade first — validate this strategy on your specific asset before going live"
+    "Do not trade if price is more than 2% away from VWAP — overextended (gharar risk)",
+    "SPOT ONLY — no futures, no margin, no leverage (all involve riba)",
+    "NO SHORT SELLING — only buy assets you will own upon execution",
+    "Only trade assets on the halal whitelist in bot.js (HALAL_SYMBOLS)",
+    "Paper trade first — validate on your specific asset before going live",
+    "Calculate and pay zakat on profits held above nisab for a lunar year (run: node bot.js --zakat)"
   ],
 
-  "notes": "Scalping strategy — designed for 1m to 5m timeframes. RSI(3) is intentionally fast and sensitive. Do not apply to higher timeframes."
+  "shariah_notes": {
+    "on_crypto": "Bitcoin and major cryptocurrencies are considered permissible by many contemporary scholars because they have utility, are not debt instruments, and do not inherently involve interest. Always verify with your own scholar.",
+    "on_trading_fees": "Exchange fees are a service charge, not interest (riba), and are generally considered permissible.",
+    "on_zakat": "Zakat of 2.5% is due on trading profits that have been held above the nisab threshold for one full lunar year. Use 'node bot.js --zakat' to get your estimate.",
+    "on_stop_loss": "Stop-loss orders are permissible as they protect your owned assets from excessive loss — they are not speculative instruments.",
+    "disclaimer": "This bot does not constitute a fatwa. Consult a qualified Islamic scholar for rulings specific to your situation."
+  }
 }
