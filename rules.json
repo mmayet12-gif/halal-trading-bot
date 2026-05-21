@@ -1,9 +1,9 @@
 {
-  "watchlist": ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "ADAUSDT"],
+  "watchlist": ["PAXGUSDT", "XAUTUSDT"],
   "default_timeframe": "4H",
 
   "strategy": {
-    "name": "Halal VWAP + RSI(3) + EMA(8) + MACD Spot Strategy",
+    "name": "Halal Gold (PAXG/XAUT) VWAP + RSI(3) + EMA(8) + MACD Spot Strategy",
     "shariah_compliance": {
       "riba_free": true,
       "no_short_selling": true,
@@ -12,7 +12,7 @@
       "notes": "This strategy only takes long (buy) positions on spot markets. Short selling is prohibited because it involves selling assets not in one's possession. Leverage and margin are prohibited due to riba (interest). Only Shariah-screened assets are traded."
     },
     "sources": ["Technical Analysis — Shariah-adapted"],
-    "description": "Three indicators, each doing a different job. EMA(8) for trend direction, VWAP for session bias, RSI(3) for entry timing, MACD for trend confirmation. All must align before a halal spot buy is executed. No short positions are ever taken."
+    "description": "Trading tokenized physical gold (PAXG = Pax Gold, XAUT = Tether Gold). Each token is backed 1:1 by a troy ounce of physical gold — the most Shariah-sound digital asset class. Four indicators: EMA(8) for trend direction, VWAP for session bias, RSI(3) for entry timing, MACD for momentum confirmation. Gold-specific thresholds applied (RSI < 35, VWAP distance < 1%). No short positions ever taken."
   },
 
   "indicators": {

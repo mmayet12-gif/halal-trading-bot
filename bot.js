@@ -23,12 +23,24 @@ import crypto from "crypto";
 import { execSync } from "child_process";
 
 // ─── Shariah-Approved Asset Whitelist ────────────────────────────────────────
-// Scholars generally permit crypto that has utility, no interest mechanism,
-// and is not tied to haram industries (gambling, alcohol, adult content, etc.).
-// This list reflects broad consensus — always verify with your own scholar.
+// Gold tokens (PAXG, XAUT) are considered highly Shariah-compliant because
+// each token is backed 1:1 by physical gold held in a vault — this is
+// the digital equivalent of owning gold (dhahab), which has always been
+// a permitted store of value and medium of trade in Islamic finance.
+//
+// Other crypto: permitted where the asset has utility and no interest mechanism.
+// Always verify new assets with your own scholar.
 const HALAL_SYMBOLS = new Set([
-  "BTCUSDT", "BTCUSDC", "BTCBUSD",
-  "ETHUSDT", "ETHUSDC", "ETHBUSD",
+  // ── Gold-backed tokens (highest Shariah preference) ──
+  "PAXGUSDT",  // Pax Gold — 1 token = 1 troy oz, held in Brink's London vault
+  "PAXGUSDC",
+  "PAXGBTC",
+  "XAUTUSDT",  // Tether Gold — 1 token = 1 troy oz Swiss gold
+  "XAUTUSDC",
+  "XAUTBTC",
+  // ── Major crypto (broadly accepted as halal) ──
+  "BTCUSDT", "BTCUSDC",
+  "ETHUSDT", "ETHUSDC",
   "BNBUSDT", "BNBUSDC",
   "ADAUSDT", "ADAUSDC",
   "SOLUSDT", "SOLUSDC",
@@ -40,7 +52,6 @@ const HALAL_SYMBOLS = new Set([
   "XLMUSDT",
   "ALGOUSDT",
   "NEARUSDT",
-  "FTMUSDT",
   "INJUSDT",
   "SUIUSDT",
   "APTUSDT",
@@ -51,6 +62,8 @@ const HARAM_SYMBOLS = new Set([
   // Add any tokens you know are tied to gambling, adult content, etc.
   // e.g. "CASINOTOKEN", "BETUSDT"
 ]);
+
+const GOLD_SYMBOLS = new Set(["PAXGUSDT", "PAXGUSDC", "PAXGBTC", "XAUTUSDT", "XAUTUSDC", "XAUTBTC"]);
 
 function checkShariahScreening(symbol) {
   const upper = symbol.toUpperCase();
@@ -66,7 +79,13 @@ function checkShariahScreening(symbol) {
     console.log(`   Proceeding is blocked until explicitly whitelisted.`);
     return false;
   }
-  console.log(`✅ ${upper} is on the halal-approved asset list`);
+  if (GOLD_SYMBOLS.has(upper)) {
+    console.log(`✅ ${upper} — tokenized physical gold (highest Shariah preference)`);
+    console.log(`   Each token is backed 1:1 by a troy ounce of physical gold in a vault.`);
+    console.log(`   Trading gold is explicitly permitted in Islamic finance (Bay' al-dhahab).`);
+  } else {
+    console.log(`✅ ${upper} is on the halal-approved asset list`);
+  }
   return true;
 }
 
@@ -240,9 +259,14 @@ function calcVWAP(candles) {
 // ─── Shariah Safety Check (LONG / BUY only — no short selling) ──────────────
 // Short selling is prohibited in Islamic finance because you are selling
 // something you do not own. This bot only evaluates buy conditions.
+//
+// Gold-specific thresholds: PAXG/XAUT move more slowly than BTC.
+// VWAP distance cap is widened to 1% (gold doesn't gap 2% intraday often).
+// RSI threshold relaxed slightly to 35 for gold (less volatile asset).
 
 function runSafetyCheck(price, ema8, vwap, rsi3, macd, rules) {
   const results = [];
+  const isGold = GOLD_SYMBOLS.has(CONFIG.symbol);
 
   const check = (label, required, actual, pass) => {
     results.push({ label, required, actual, pass });
@@ -251,10 +275,14 @@ function runSafetyCheck(price, ema8, vwap, rsi3, macd, rules) {
     console.log(`     Required: ${required} | Actual: ${actual}`);
   };
 
-  console.log("\n── Safety Check (Halal — Long Entry Only) ───────────────\n");
+  console.log(`\n── Safety Check (Halal — Long Entry Only${isGold ? " — Gold Mode" : ""}) ────\n`);
 
   const bullishBias = price > vwap && price > ema8;
   const macdBullish = macd ? macd.macdLine > macd.signalLine : null;
+
+  // Gold moves slowly — use tighter VWAP distance (1%) and slightly relaxed RSI (35)
+  const rsiThreshold = isGold ? 35 : 30;
+  const vwapDistThreshold = isGold ? 1.0 : 2.0;
 
   if (bullishBias) {
     console.log("  Bias: BULLISH — checking long entry conditions\n");
@@ -274,30 +302,29 @@ function runSafetyCheck(price, ema8, vwap, rsi3, macd, rules) {
     );
 
     check(
-      "RSI(3) below 30 (snap-back setup in uptrend)",
-      "< 30",
+      `RSI(3) below ${rsiThreshold} (pullback entry in uptrend)`,
+      `< ${rsiThreshold}`,
       rsi3.toFixed(2),
-      rsi3 < 30,
+      rsi3 < rsiThreshold,
     );
 
     const distFromVWAP = Math.abs((price - vwap) / vwap) * 100;
     check(
-      "Price within 2% of VWAP (not overextended — reduces gharar)",
-      "< 2%",
+      `Price within ${vwapDistThreshold}% of VWAP (not overextended — reduces gharar)`,
+      `< ${vwapDistThreshold}%`,
       `${distFromVWAP.toFixed(2)}%`,
-      distFromVWAP < 2,
+      distFromVWAP < vwapDistThreshold,
     );
 
     if (macd !== null) {
       check(
-        "MACD line above signal line (trend confirmation)",
+        "MACD line above signal line (momentum confirmation)",
         "MACD > Signal",
         `MACD ${macd.macdLine.toFixed(4)} | Signal ${macd.signalLine.toFixed(4)}`,
         macdBullish,
       );
     }
   } else {
-    // NEUTRAL or BEARISH — no short selling permitted in Shariah
     console.log("  Bias: NEUTRAL / BEARISH\n");
     console.log("  ℹ️  Short selling is not permitted under Shariah principles.");
     console.log("  No trade will be placed. Waiting for a halal long setup.\n");
