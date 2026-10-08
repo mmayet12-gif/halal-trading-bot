@@ -12,7 +12,7 @@ Claude + TradingView MCP + BitGet Spot Exchange — adapted for Islamic finance 
 | No Short Selling | ✅ Enforced | Bot only evaluates long (buy) entries |
 | Halal Asset Screening | ✅ Enforced | Whitelist of permissible crypto pairs in `bot.js` |
 | No Gharar (excess uncertainty) | ✅ Guarded | Price must be within 2% of VWAP before entry |
-| Zakat Tracking | ✅ Built-in | `node bot.js --zakat` calculates 2.5% on net profits |
+| Zakat Tracking | ✅ Built-in | `node bot.js --zakat` calculates 2.5% of the value of what you hold |
 
 > **Disclaimer:** This bot does not constitute a fatwa. Consult a qualified Islamic scholar for rulings specific to your situation. Cryptocurrency permissibility is accepted by many contemporary scholars but remains a matter of scholarly discussion.
 
@@ -46,10 +46,10 @@ The bot maintains a whitelist (`HALAL_SYMBOLS`) of assets broadly considered per
 ### 4. Reduced Gharar (Uncertainty)
 The strategy requires price to be within 2% of VWAP before entry. This guards against entering highly volatile, overextended conditions where uncertainty is excessive.
 
-### 5. Zakat on Trading Profits
-Run `node bot.js --zakat` at any time to calculate the estimated zakat due on your trading profits:
+### 5. Zakat on Trading Holdings
+Run `node bot.js --zakat` at any time to calculate the estimated zakat due. For trade goods it is 2.5% of the market value of your holdings on your zakat date (not just profit), once above nisab and held a lunar year:
 - 2.5% is due on net profits held above the nisab threshold for one lunar year
-- Set your nisab threshold in `.env` as `ZAKAT_NISAB_USD` (approx. value of 85g of gold)
+- Set your nisab threshold in `.env` as `ZAKAT_NISAB_USD` (85g gold or 595g silver; scholars differ). Add cash etc. via `ZAKAT_OTHER_ASSETS_USD`
 
 ---
 

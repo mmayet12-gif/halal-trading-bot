@@ -57,13 +57,13 @@
     "NO SHORT SELLING — only buy assets you will own upon execution",
     "Only trade assets on the halal whitelist in bot.js (HALAL_SYMBOLS)",
     "Paper trade first — validate on your specific asset before going live",
-    "Calculate and pay zakat on profits held above nisab for a lunar year (run: node bot.js --zakat)"
+    "Calculate and pay zakat (2.5% of the value of holdings) once above nisab for a lunar year (run: node bot.js --zakat)"
   ],
 
   "shariah_notes": {
     "on_crypto": "Bitcoin and major cryptocurrencies are considered permissible by many contemporary scholars because they have utility, are not debt instruments, and do not inherently involve interest. Always verify with your own scholar.",
     "on_trading_fees": "Exchange fees are a service charge, not interest (riba), and are generally considered permissible.",
-    "on_zakat": "Zakat of 2.5% is due on trading profits that have been held above the nisab threshold for one full lunar year. Use 'node bot.js --zakat' to get your estimate.",
+    "on_zakat": "Zakat of 2.5% is due on the market value of trade goods held (not only profit) once above nisab for one full lunar year. Use 'node bot.js --zakat' to get your estimate.",
     "on_stop_loss": "Stop-loss orders are permissible as they protect your owned assets from excessive loss — they are not speculative instruments.",
     "disclaimer": "This bot does not constitute a fatwa. Consult a qualified Islamic scholar for rulings specific to your situation."
   }

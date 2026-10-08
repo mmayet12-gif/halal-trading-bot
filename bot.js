@@ -63,8 +63,9 @@ function checkShariahScreening(symbol) {
     return false;
   }
   if (GOLD_SYMBOLS.has(s)) {
-    console.log(`✅ ${s} — tokenized physical gold (highest Shariah preference)`);
-    console.log(`   1 token = 1 troy oz gold in a vault. Bay' al-dhahab is permitted.`);
+    console.log(`✅ ${s} — tokenized physical gold (on the bot's whitelist)`);
+    console.log(`   Gold trading must be spot, hand-to-hand (AAOIFI Standard 57). Whether a token`);
+    console.log(`   satisfies possession (qabd) is disputed — confirm with your scholar.`);
   } else {
     console.log(`✅ ${s} is on the halal-approved list`);
   }
@@ -506,19 +507,24 @@ const CSV_FILE = "trades.csv";
 
 function calculateZakat() {
   if (!existsSync(CSV_FILE)) { console.log("No trades.csv yet."); return; }
-  const rows    = readFileSync(CSV_FILE, "utf8").trim().split("\n").slice(1).map(l => l.split(","));
-  const live    = rows.filter(r => r[11] === "LIVE");
-  const vol     = live.reduce((s, r) => s + parseFloat(r[7] || 0), 0);
-  const fees    = live.reduce((s, r) => s + parseFloat(r[8] || 0), 0);
-  const net     = vol - fees;
-  const due     = net >= CONFIG.zakatNisabUSD ? net * 0.025 : 0;
-  console.log("\n── Zakat Summary ────────────────────────────────────────\n");
-  console.log(`  Live trades:    ${live.length}`);
-  console.log(`  Total volume:   $${vol.toFixed(2)}`);
-  console.log(`  Total fees:     $${fees.toFixed(4)}`);
-  console.log(`  Nisab:          $${CONFIG.zakatNisabUSD}`);
-  console.log(net >= CONFIG.zakatNisabUSD
-    ? `  ✅ Zakat due:    $${due.toFixed(2)} (2.5% of net)`
+  const rows = readFileSync(CSV_FILE, "utf8").trim().split("\n").slice(1).map(l => l.split(","));
+  const live = rows.filter(r => r[11] === "LIVE");
+  // Trade goods (urud al-tijara): zakat is 2.5% of the market value of what you
+  // hold on your zakat date, not of profit or trading volume.
+  const held = live.reduce((s, r) => s + (r[4] === "buy" ? 1 : -1) * parseFloat(r[5] || 0), 0);
+  const last = live.length ? parseFloat(live[live.length - 1][6] || 0) : 0;
+  const other = parseFloat(process.env.ZAKAT_OTHER_ASSETS_USD || "0");
+  const holdingsUSD = Math.max(held, 0) * last;
+  const base = holdingsUSD + other;
+  const due  = base >= CONFIG.zakatNisabUSD ? base * 0.025 : 0;
+  console.log("\n── Zakat Summary (estimate) ─────────────────────────────\n");
+  console.log(`  Live trades:      ${live.length}`);
+  console.log(`  Tokens held:      ${Math.max(held, 0).toFixed(6)} @ last trade price $${last.toFixed(2)}`);
+  console.log(`  Holdings value:   $${holdingsUSD.toFixed(2)}  (re-value at today's price before paying)`);
+  console.log(`  Other zakatable:  $${other.toFixed(2)}  (ZAKAT_OTHER_ASSETS_USD: cash, etc.)`);
+  console.log(`  Nisab:            $${CONFIG.zakatNisabUSD}  (85g gold or 595g silver; scholars differ)`);
+  console.log(base >= CONFIG.zakatNisabUSD
+    ? `  ✅ Zakat due:      $${due.toFixed(2)} (2.5% of total) — if held a full lunar year (hawl)`
     : `  ℹ️  Below nisab — no zakat due yet`);
   console.log("\n  Consult your scholar for your exact situation.\n");
 }
