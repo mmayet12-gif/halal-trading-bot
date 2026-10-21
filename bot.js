@@ -114,6 +114,8 @@ const CONFIG = {
   portfolioValue:  parseFloat(process.env.PORTFOLIO_VALUE_USD || "1000"),
   maxTradeSizeUSD: parseFloat(process.env.MAX_TRADE_SIZE_USD  || "100"),
   maxTradesPerDay: parseInt(process.env.MAX_TRADES_PER_DAY    || "3"),
+  maxDrawdownPct:  parseFloat(process.env.MAX_DRAWDOWN_PCT     || "15"),
+  drawdownLookback: parseInt(process.env.DRAWDOWN_LOOKBACK     || "5"),
   paperTrading:  process.env.PAPER_TRADING !== "false",
   tradeMode:     "spot", // hardcoded — futures = riba = haram
   zakatNisabUSD: parseFloat(process.env.ZAKAT_NISAB_USD || "5000"),
@@ -455,17 +457,65 @@ function runGoldScalperCheck(candles, log) {
   };
 }
 
-// ─── Trade Limits ─────────────────────────────────────────────────────────────
+// ─── Drawdown Guard ───────────────────────────────────────────────────────────
+// Position-level risk control the bot didn't have: every other gate here
+// decides whether to BUY, but none of them look at whether buying more into
+// a falling position is a good idea. This doesn't touch entry signals or
+// open any new capability — it can only ever block a buy that the signal
+// checks would otherwise have allowed, never permit one they wouldn't.
+// If there's no trade history yet (first run, or no LIVE rows), it passes
+// through rather than blocking on absent data — a drawdown check is
+// meaningless with nothing to compare against.
 
-function checkTradeLimits(log) {
+function checkDrawdownGuard(currentPrice) {
+  if (!existsSync(CSV_FILE)) return { pass: true };
+  const rows = readFileSync(CSV_FILE, "utf8").trim().split("\n").slice(1)
+    .map(l => l.split(","))
+    .filter(r => r[11] === "LIVE" && r[3] === CONFIG.symbol && r[6]);
+  if (rows.length === 0) return { pass: true };
+
+  const recent = rows.slice(-CONFIG.drawdownLookback);
+  const avgEntry = recent.reduce((s, r) => s + parseFloat(r[6]), 0) / recent.length;
+  if (!isFinite(avgEntry) || avgEntry <= 0) return { pass: true }; // malformed rows — don't block on bad data, but don't trust it either
+
+  const dropPct = ((avgEntry - currentPrice) / avgEntry) * 100;
+  if (dropPct >= CONFIG.maxDrawdownPct) {
+    return {
+      pass: false,
+      avgEntry, dropPct,
+      message: `Price is ${dropPct.toFixed(1)}% below your last ${recent.length} live entries' average ($${avgEntry.toFixed(2)}) — at or past the ${CONFIG.maxDrawdownPct}% drawdown limit. Halting new buys so this doesn't average down further on autopilot. Review your position manually (see trades.csv) before resuming; this isn't a sell signal, just a stop on adding to a loser unattended.`,
+    };
+  }
+  return { pass: true, avgEntry, dropPct };
+}
+
+// ─── Trade Limits ─────────────────────────────────────────────────────────────
+// Split in two on purpose: the daily cap needs no price, so it runs before
+// the candle fetch (no point hitting Binance if we're capped already). The
+// drawdown guard needs a live price, so it runs separately once we have one.
+
+function checkDailyCap(log) {
   const todayCount = countTodaysTrades(log);
   console.log("\n── Trade Limits ─────────────────────────────────────────\n");
   if (todayCount >= CONFIG.maxTradesPerDay) {
     console.log(`🚫 Daily cap reached: ${todayCount}/${CONFIG.maxTradesPerDay}`);
     return false;
   }
-  const tradeSize = Math.min(CONFIG.portfolioValue * 0.01, CONFIG.maxTradeSizeUSD);
   console.log(`✅ Trades today: ${todayCount}/${CONFIG.maxTradesPerDay}`);
+  return true;
+}
+
+function checkTradeLimits(currentPrice) {
+  const drawdown = checkDrawdownGuard(currentPrice);
+  if (!drawdown.pass) {
+    console.log(`🚫 DRAWDOWN GUARD TRIPPED`);
+    console.log(`   ${drawdown.message}`);
+    return false;
+  }
+  if (drawdown.avgEntry) {
+    console.log(`✅ Drawdown check: ${drawdown.dropPct.toFixed(1)}% vs avg entry $${drawdown.avgEntry.toFixed(2)} (limit ${CONFIG.maxDrawdownPct}%)`);
+  }
+  const tradeSize = Math.min(CONFIG.portfolioValue * 0.01, CONFIG.maxTradeSizeUSD);
   console.log(`✅ Trade size:   $${tradeSize.toFixed(2)} (max $${CONFIG.maxTradeSizeUSD})`);
   return true;
 }
@@ -595,7 +645,7 @@ async function run() {
   }
 
   const log = loadLog();
-  if (!checkTradeLimits(log)) { console.log("\nStopping — daily trade limit reached."); return; }
+  if (!checkDailyCap(log)) { console.log("\nStopping — daily trade limit reached."); return; }
 
   console.log(`\n── Fetching ${CONFIG.symbol} candles from Binance ──────────────\n`);
   const candles = await fetchCandles(CONFIG.symbol, CONFIG.timeframe, 500);
@@ -604,6 +654,8 @@ async function run() {
   console.log(`  Timeframe: ${CONFIG.timeframe}`);
   console.log(`  Price:     $${price.toFixed(2)}`);
   console.log(`  Candles:   ${candles.length}`);
+
+  if (!checkTradeLimits(price)) { console.log("\nStopping — drawdown guard."); return; }
 
   const { allPass, results, exitSignal, indicators } = runGoldScalperCheck(candles, log);
 
