@@ -511,7 +511,7 @@ function calculateZakat() {
   const live = rows.filter(r => r[11] === "LIVE");
   // Trade goods (urud al-tijara): zakat is 2.5% of the market value of what you
   // hold on your zakat date, not of profit or trading volume.
-  const held = live.reduce((s, r) => s + (r[4] === "buy" ? 1 : -1) * parseFloat(r[5] || 0), 0);
+  const held = live.reduce((s, r) => s + (String(r[4]).toUpperCase() === "BUY" ? 1 : -1) * parseFloat(r[5] || 0), 0);
   const last = live.length ? parseFloat(live[live.length - 1][6] || 0) : 0;
   const other = parseFloat(process.env.ZAKAT_OTHER_ASSETS_USD || "0");
   const holdingsUSD = Math.max(held, 0) * last;

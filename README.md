@@ -48,7 +48,6 @@ The strategy requires price to be within 2% of VWAP before entry. This guards ag
 
 ### 5. Zakat on Trading Holdings
 Run `node bot.js --zakat` at any time to calculate the estimated zakat due. For trade goods it is 2.5% of the market value of your holdings on your zakat date (not just profit), once above nisab and held a lunar year:
-- 2.5% is due on net profits held above the nisab threshold for one lunar year
 - Set your nisab threshold in `.env` as `ZAKAT_NISAB_USD` (85g gold or 595g silver; scholars differ). Add cash etc. via `ZAKAT_OTHER_ASSETS_USD`
 
 ---
