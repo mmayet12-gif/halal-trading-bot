@@ -511,15 +511,23 @@ function calculateZakat() {
   const live = rows.filter(r => r[11] === "LIVE");
   // Trade goods (urud al-tijara): zakat is 2.5% of the market value of what you
   // hold on your zakat date, not of profit or trading volume.
-  const held = live.reduce((s, r) => s + (String(r[4]).toUpperCase() === "BUY" ? 1 : -1) * parseFloat(r[5] || 0), 0);
-  const last = live.length ? parseFloat(live[live.length - 1][6] || 0) : 0;
+  // Per symbol: quantities of different coins can't be summed, and each is
+  // valued at its own last trade price.
+  const bySymbol = new Map();
+  for (const r of live) {
+    const p = bySymbol.get(r[3]) || { held: 0, last: 0 };
+    p.held += (String(r[4]).toUpperCase() === "BUY" ? 1 : -1) * parseFloat(r[5] || 0);
+    p.last = parseFloat(r[6] || 0);
+    bySymbol.set(r[3], p);
+  }
+  const positions = [...bySymbol].map(([sym, p]) => ({ sym, held: Math.max(p.held, 0), last: p.last, usd: Math.max(p.held, 0) * p.last }));
   const other = parseFloat(process.env.ZAKAT_OTHER_ASSETS_USD || "0");
-  const holdingsUSD = Math.max(held, 0) * last;
+  const holdingsUSD = positions.reduce((s, p) => s + p.usd, 0);
   const base = holdingsUSD + other;
   const due  = base >= CONFIG.zakatNisabUSD ? base * 0.025 : 0;
   console.log("\n── Zakat Summary (estimate) ─────────────────────────────\n");
   console.log(`  Live trades:      ${live.length}`);
-  console.log(`  Tokens held:      ${Math.max(held, 0).toFixed(6)} @ last trade price $${last.toFixed(2)}`);
+  for (const p of positions) console.log(`  ${p.sym.padEnd(16)}${p.held.toFixed(6)} @ last trade price $${p.last.toFixed(2)} = $${p.usd.toFixed(2)}`);
   console.log(`  Holdings value:   $${holdingsUSD.toFixed(2)}  (re-value at today's price before paying)`);
   console.log(`  Other zakatable:  $${other.toFixed(2)}  (ZAKAT_OTHER_ASSETS_USD: cash, etc.)`);
   console.log(`  Nisab:            $${CONFIG.zakatNisabUSD}  (85g gold or 595g silver; scholars differ)`);
