@@ -145,6 +145,29 @@ PAPER_TRADING=false
 
 ---
 
+## Backtesting the strategy
+
+Before trusting the bot with real money, check how its signal would have
+done on history:
+
+```bash
+npm run backtest                                   # last 365 days of SYMBOL / TIMEFRAME
+node backtest.mjs --days 730 --symbol PAXGUSDT     # longer window
+node backtest.mjs --csv candles.csv                # offline: time,open,high,low,close,volume
+```
+
+`backtest.mjs` reads the signal functions from `bot.js` and runs them
+unchanged, bar by bar, so it tests exactly what the bot trades on. It
+reports two exit policies against buy-and-hold:
+
+- **A. As built:** the bot only buys. It prints an exit advisory when
+  SuperTrend turns bearish but never sells.
+- **B. Following the advisory:** sell everything at each bearish flip.
+
+It uses the same trade size, daily cap and 3-bar cooldown as the live bot,
+assumes a 0.1% fee per side, and ignores slippage. Treat the result as a
+sanity check, not a forecast.
+
 ## Tax Accounting
 
 Every trade is logged to `trades.csv`:
